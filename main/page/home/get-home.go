@@ -1,88 +1,78 @@
 package home
 
 import (
-	"fmt"
-	"time"
+	. "forbizbe/main/model"
+	. "forbizbe/main/svmn/Mysql"
+
+	"sort"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/go-sql-driver/mysql"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
 )
 
-type user struct {
-	ID        uint      `gorm:"primaryKey; autoIncrement"`
-	Name      string    `gorm:"not null; size:150"`
-	Email     string    `gorm:"not null; unique; size:300"`
-	Password  string    `gorm:"not null"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
-}
+func HomeUserList(c *gin.Context) {
+	var posts []Post
+	var users []User
 
-func homeUserList(c *gin.Context) {
-	c.JSON(200, gin.H{
-		"message": "OK",
+	userId := c.Query("userId")
+
+	if len(userId) == 0 {
+		message := map[string]string{"message": MESSAGE_USER_NIL}
+		response := Response{
+			Code: CODE_USER_NIL,
+			Data: message,
+		}
+		c.JSON(404, response)
+		return
+	}
+
+	/* Data fetch */
+	DB.Preload("Posts.Writer").Preload("Follows.Posts.Writer").Find(&users, userId)
+	if len(users) == 0 {
+		message := map[string]string{"message": MESSAGE_USER_ZERO}
+		response := Response{
+			Code: CODE_USER_ZERO,
+			Data: message,
+		}
+		c.JSON(404, response)
+		return
+	}
+
+	posts = append(posts, users[0].Posts...)
+	for _, follow := range users[0].Follows {
+		posts = append(posts, follow.Posts...)
+	}
+
+	/* Sorting */
+	sort.SliceStable(posts, func(i, j int) bool {
+		return posts[i].CreatedAt.After(*posts[j].CreatedAt)
 	})
 
-	dns := "docker:docker@tcp(auwellnessforbiz-cms-db-container:3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
-	db, err := gorm.Open(mysql.Open(dns), &gorm.Config{})
-	if err != nil {
-		panic(err)
+	/* Formating */
+	data := make([]PostRe, len(posts))
+	for i := 0; i < len(posts); i++ {
+		data[i].ID = posts[i].ID
+		data[i].Comment = posts[i].Comment
+		data[i].UpdatedAt = posts[i].UpdatedAt.Format(TIME_FORMAT)
+		data[i].CreatedAt = posts[i].CreatedAt.Format(TIME_FORMAT)
+		data[i].Writer.ID = posts[i].Writer.ID
+		data[i].Writer.Name = posts[i].Writer.Name
+		data[i].Writer.Email = posts[i].Writer.Email
+		data[i].Writer.CreatedAt = posts[i].Writer.CreatedAt.Format(TIME_FORMAT)
+		data[i].Writer.UpdatedAt = posts[i].Writer.UpdatedAt.Format(TIME_FORMAT)
 	}
 
-	db.AutoMigrate(&user{})
-
-}
-
-// func homeUserList(c *gin.Context) {
-// 	db, _ := sql.Open("mysql", "docker:docker@tcp(auwellnessforbiz-cms-db-container:3306)/test")
-// 	defer db.Close()
-
-// 	rows, err := db.Query("SELECT sno, name from test_table")
-// 	if err != nil {
-// 		fmt.Println(err)
-// 	}
-// 	defer rows.Close()
-
-// 	var sno int
-// 	var name string
-
-// 	for rows.Next() {
-// 		_ = rows.Scan(&sno, &name)
-// 		fmt.Println(sno, name)
-// 	}
-
-// 	c.JSON(200, gin.H{
-// 		"message": "OK",
-// 	})
-// }
-
-func HomeManager(r *gin.Engine) {
-	r.GET("/post/home", homeUserList)
-	r.GET("/post/home/seed", seed)
-}
-
-func seed(c *gin.Context) {
-	dns := "docker:docker@tcp(auwellnessforbiz-cms-db-container:3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
-	db, err := gorm.Open(mysql.Open(dns), &gorm.Config{})
-	if err != nil {
-		panic(err)
+	/* Cut to Top 20 */
+	maxSize := len(data)
+	if maxSize > 20 {
+		maxSize = 20
 	}
-	tmp := []user{
-		{ID: 1, Name: "ABC", Email: "ta11@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
-		{ID: 2, Name: "ABC", Email: "ta21@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
-		{ID: 3, Name: "ABC", Email: "ta31@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
-		{ID: 4, Name: "ABC", Email: "ta41@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
-		{ID: 5, Name: "ABC", Email: "ta51@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
-		{ID: 6, Name: "ABC", Email: "ta61@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
-		{ID: 7, Name: "ABC", Email: "ta71@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
-		{ID: 8, Name: "ABC", Email: "ta81@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
-		{ID: 9, Name: "ABC", Email: "ta91@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
-		{ID: 10, Name: "ABC", Email: "ta110@ss.com", Password: "1234", CreatedAt: time.Time{}, UpdatedAt: time.Time{}},
+
+	data = data[:maxSize]
+
+	result := Response{
+		Code: "OK",
+		Data: data,
 	}
-	result := db.Create(&tmp)
-	if result.Error != nil {
-		panic(result.Error)
-	}
-	fmt.Println(result.RowsAffected)
+
+	c.JSON(200, result)
 }
